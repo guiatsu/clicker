@@ -105,9 +105,7 @@ fn execute(
     } else {
         1
     };
-    let max_clicks = settings
-        .max_clicks
-        .or_else(|| (!sequence && !settings.repeat_continuously).then_some(1));
+    let max_clicks = settings.max_clicks;
     let interval = Duration::from_secs_f64(settings.interval_ms / 1000.0);
     let press_duration = Duration::from_secs_f64(settings.press_duration_ms / 1000.0);
     let position_interval =
@@ -187,7 +185,7 @@ fn execute(
         }
 
         cycles_done += 1;
-        if !settings.repeat_continuously && sequence && cycles_done >= settings.cycles {
+        if !settings.repeat_continuously && cycles_done >= settings.cycles {
             break;
         }
     }

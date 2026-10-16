@@ -384,6 +384,13 @@ mod tests {
         let new = Hotkey::from_keys([0x41, 0x42, 0x43]);
         let restored: Hotkey = serde_json::from_str(&serde_json::to_string(&new).unwrap()).unwrap();
         assert_eq!(restored.label(), "A + B + C");
+
+        let legacy_settings: Settings = serde_json::from_str(
+            r#"{"speed_mode":"HighPrecision","start_hotkey":{"key_code":117,"modifiers":{"control":true,"shift":false,"alt":false,"windows":false}}}"#,
+        )
+        .unwrap();
+        assert_eq!(legacy_settings.start_hotkey.label(), "Ctrl + F6");
+        assert_eq!(legacy_settings.toggle_overlay_hotkey.label(), "F8");
     }
 
     #[test]

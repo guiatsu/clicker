@@ -80,7 +80,7 @@ pub struct AutoClickerApp {
     session_total_before: u64,
     total_clicks: u64,
     status: String,
-    notice: Option<String>,
+    notice: Option<(String, Color32)>,
     storage_warning: Option<String>,
     shortcut_capture: Option<ShortcutCapture>,
     confirm_clear_positions: bool,
@@ -149,6 +149,10 @@ impl AutoClickerApp {
         }
     }
 
+    fn set_notice(&mut self, message: impl Into<String>, color: Color32) {
+        self.notice = Some((message.into(), color));
+    }
+
     fn process_engine_events(&mut self) {
         loop {
             match self.engine_events.try_recv() {
@@ -164,7 +168,7 @@ impl AutoClickerApp {
                     }
                     if let Some(error) = error {
                         self.status = "Falha".to_owned();
-                        self.notice = Some(error);
+                        self.set_notice(error, RED);
                     } else {
                         self.status = "Pronto".to_owned();
                     }
@@ -202,17 +206,19 @@ impl AutoClickerApp {
                             cursor,
                         );
                         changed = true;
-                        self.notice = Some(format!(
-                            "Posição {} registrada · X {} · Y {}",
-                            self.profiles.active().settings.positions.len(),
-                            cursor.x,
-                            cursor.y
-                        ));
+                        self.set_notice(
+                            format!(
+                                "Posição {} registrada · X {} · Y {}",
+                                self.profiles.active().settings.positions.len(),
+                                cursor.x,
+                                cursor.y
+                            ),
+                            TEAL,
+                        );
                         self.overlay
                             .set_points(self.profiles.active().settings.positions.clone());
                     } else {
-                        self.notice =
-                            Some("O Windows não conseguiu ler a posição do cursor.".to_owned());
+                        self.set_notice("O Windows não conseguiu ler a posição do cursor.", RED);
                     }
                 } else if settings.add_coordinate_hotkey.matches_keys(&down_keys) {
                     self.open_coordinate_dialog(cursor);
@@ -220,7 +226,7 @@ impl AutoClickerApp {
                     self.toggle_overlay();
                 } else if settings.clear_positions_hotkey.matches_keys(&down_keys) {
                     if settings.positions.is_empty() {
-                        self.notice = Some("Não há posições para limpar.".to_owned());
+                        self.set_notice("Não há posições para limpar.", AMBER);
                     } else {
                         self.confirm_clear_positions = true;
                         self.focus_pending = true;
@@ -254,15 +260,19 @@ impl AutoClickerApp {
             .is_some_and(|capture| now.duration_since(capture.started_at) >= CAPTURE_TIMEOUT)
         {
             self.shortcut_capture = None;
-            self.notice = Some("Tempo de escuta encerrado. O atalho não foi alterado.".to_owned());
+            self.set_notice(
+                "Tempo de escuta encerrado. O atalho não foi alterado.",
+                AMBER,
+            );
         }
         changed
     }
 
     fn begin_shortcut_capture(&mut self, target: ShortcutTarget) {
         self.shortcut_capture = Some(ShortcutCapture::new(target));
-        self.notice = Some(
-            "Escutando. Pressione a combinação e solte todas as teclas para salvar.".to_owned(),
+        self.set_notice(
+            "Escutando. Pressione a combinação e solte todas as teclas para salvar.",
+            TEAL,
         );
     }
 
@@ -273,14 +283,14 @@ impl AutoClickerApp {
         let hotkey = Hotkey::from_keys(capture.keys);
         let settings = &mut self.profiles.active_mut().settings;
         if shortcut_conflicts(settings, capture.target, &hotkey) {
-            self.notice = Some(format!(
+            self.set_notice(format!(
                 "{} coincide ou se sobrepõe a outro atalho. Clique no atalho e tente outra combinação.",
                 hotkey.label()
-            ));
+            ), AMBER);
             return false;
         }
         set_shortcut(settings, capture.target, hotkey.clone());
-        self.notice = Some(format!("Atalho salvo: {}", hotkey.label()));
+        self.set_notice(format!("Atalho salvo: {}", hotkey.label()), TEAL);
         true
     }
 
@@ -289,8 +299,10 @@ impl AutoClickerApp {
             return;
         }
         if !self.hotkeys.is_available() {
-            self.notice =
-                Some("A execução real dos cliques está disponível somente no Windows.".to_owned());
+            self.set_notice(
+                "A execução real dos cliques está disponível somente no Windows.",
+                AMBER,
+            );
             return;
         }
         match EngineSession::start(settings, self.engine_sender.clone()) {
@@ -301,7 +313,7 @@ impl AutoClickerApp {
                 self.status = "Executando".to_owned();
                 self.notice = None;
             }
-            Err(error) => self.notice = Some(error),
+            Err(error) => self.set_notice(error, RED),
         }
     }
 
@@ -326,8 +338,10 @@ impl AutoClickerApp {
         self.coordinate_dialog = true;
         self.focus_pending = true;
         if position.is_none() {
-            self.notice =
-                Some("Cursor indisponível; informe as coordenadas manualmente.".to_owned());
+            self.set_notice(
+                "Cursor indisponível; informe as coordenadas manualmente.",
+                AMBER,
+            );
         }
     }
 
@@ -335,13 +349,16 @@ impl AutoClickerApp {
         let points = self.profiles.active().settings.positions.clone();
         match self.overlay.toggle(points) {
             Ok(visible) => {
-                self.notice = Some(if visible {
-                    "Marcadores de posição visíveis.".to_owned()
-                } else {
-                    "Marcadores de posição ocultos.".to_owned()
-                });
+                self.set_notice(
+                    if visible {
+                        "Marcadores de posição visíveis.".to_owned()
+                    } else {
+                        "Marcadores de posição ocultos.".to_owned()
+                    },
+                    TEAL,
+                );
             }
-            Err(error) => self.notice = Some(error),
+            Err(error) => self.set_notice(error, RED),
         }
     }
 
@@ -633,8 +650,10 @@ impl AutoClickerApp {
                         if let Some(position) = input::cursor_position() {
                             settings.fixed_position = position;
                         } else {
-                            self.notice =
-                                Some("O Windows não conseguiu ler a posição do cursor.".to_owned());
+                            self.set_notice(
+                                "O Windows não conseguiu ler a posição do cursor.",
+                                RED,
+                            );
                         }
                     }
                 });
@@ -844,7 +863,7 @@ impl AutoClickerApp {
                 });
             if cancel_capture {
                 self.shortcut_capture = None;
-                self.notice = Some("Gravação cancelada.".to_owned());
+                self.set_notice("Gravação cancelada.", MUTED);
             }
         }
     }
@@ -957,7 +976,7 @@ impl AutoClickerApp {
                             positions::append(&mut settings.positions, self.coordinate_input);
                             self.coordinate_dialog = false;
                             *dirty = true;
-                            self.notice = Some(format!("Ponto salvo · X {} · Y {}", self.coordinate_input.x, self.coordinate_input.y));
+                        self.set_notice(format!("Ponto salvo · X {} · Y {}", self.coordinate_input.x, self.coordinate_input.y), TEAL);
                         }
                     });
                 });
@@ -987,7 +1006,7 @@ impl AutoClickerApp {
                             self.overlay.set_points(Vec::new());
                             self.confirm_clear_positions = false;
                             *dirty = true;
-                            self.notice = Some("Lista de pontos limpa.".to_owned());
+                            self.set_notice("Lista de pontos limpa.", TEAL);
                         }
                     });
                 });
@@ -1143,9 +1162,9 @@ impl eframe::App for AutoClickerApp {
                         .show(ui, |ui| {
                             self.position_shortcuts_section(ui, &settings);
                         });
-                    if let Some(notice) = &self.notice {
+                    if let Some((notice, color)) = &self.notice {
                         ui.add_space(10.0);
-                        ui.label(RichText::new(notice).color(TEAL));
+                        ui.label(RichText::new(notice).color(*color));
                     }
                     if let Some(warning) = &self.storage_warning {
                         ui.add_space(6.0);
