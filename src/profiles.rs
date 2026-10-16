@@ -59,7 +59,17 @@ impl ProfileStore {
 
     pub fn load() -> io::Result<Self> {
         let path = settings_path()?;
-        let contents = fs::read(path)?;
+        let contents = match fs::read(&path) {
+            Ok(contents) => contents,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                let legacy = legacy_settings_path()?;
+                if legacy == path {
+                    return Err(error);
+                }
+                fs::read(legacy)?
+            }
+            Err(error) => return Err(error),
+        };
         let mut store: Self = serde_json::from_slice(&contents).map_err(io::Error::other)?;
         store.normalize();
         Ok(store)
@@ -140,6 +150,23 @@ impl ProfileStore {
 }
 
 pub fn settings_path() -> io::Result<PathBuf> {
+    #[cfg(windows)]
+    let base = env::var_os("APPDATA").map(PathBuf::from);
+    #[cfg(not(windows))]
+    let base = env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .or_else(|| env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")));
+
+    base.map(|base| base.join("NeoAutoClicker").join("profiles.json"))
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                "diretório de configuração indisponível",
+            )
+        })
+}
+
+fn legacy_settings_path() -> io::Result<PathBuf> {
     #[cfg(windows)]
     let base = env::var_os("APPDATA").map(PathBuf::from);
     #[cfg(not(windows))]

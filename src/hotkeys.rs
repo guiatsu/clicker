@@ -7,17 +7,17 @@ use std::{
     thread::JoinHandle,
 };
 
-use crate::settings::{Hotkey, Point};
+use crate::settings::Point;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 #[cfg_attr(not(windows), allow(dead_code))]
 pub enum HotkeyEvent {
-    KeyDown {
-        hotkey: Hotkey,
+    KeyChanged {
+        key_code: u16,
+        is_down: bool,
+        down_keys: Vec<u16>,
+        previous_keys: Vec<u16>,
         cursor: Option<Point>,
-    },
-    KeyUp {
-        hotkey: Hotkey,
     },
 }
 
@@ -70,6 +70,7 @@ impl Drop for HotkeyService {
 #[cfg(windows)]
 mod windows {
     use std::{
+        collections::BTreeSet,
         sync::{
             Arc,
             atomic::{AtomicBool, Ordering},
@@ -84,62 +85,86 @@ mod windows {
         UI::{Input::KeyboardAndMouse::GetAsyncKeyState, WindowsAndMessaging::GetCursorPos},
     };
 
-    use crate::settings::{Hotkey, Modifiers, Point};
+    use crate::settings::{Point, normalize_key};
 
     use super::HotkeyEvent;
 
     pub fn watch(stop: Arc<AtomicBool>, sender: Sender<HotkeyEvent>) {
-        let mut previous = [false; 256];
-        let mut active_chords = [Hotkey::default(); 256];
+        let mut previous_keys = BTreeSet::new();
 
         while !stop.load(Ordering::Acquire) {
-            let mut down = [false; 256];
-            for (key, state) in down.iter_mut().enumerate().skip(1) {
-                *state = unsafe { GetAsyncKeyState(key as i32) } < 0;
+            let mut physical = [false; 256];
+            for (key, state) in physical.iter_mut().enumerate().skip(1) {
+                if is_keyboard_key(key as u16) {
+                    *state = unsafe { GetAsyncKeyState(key as i32) } < 0;
+                }
             }
-            let modifiers = Modifiers {
-                control: down[0x11] || down[0xa2] || down[0xa3],
-                shift: down[0x10] || down[0xa0] || down[0xa1],
-                alt: down[0x12] || down[0xa4] || down[0xa5],
-                windows: down[0x5b] || down[0x5c],
-            };
 
-            for (key, (&is_down, &was_down)) in down.iter().zip(&previous).enumerate().skip(1) {
-                if is_down == was_down || is_modifier(key as u16) {
-                    continue;
-                }
-                if is_down {
-                    let hotkey = Hotkey {
-                        key_code: key as u16,
-                        modifiers,
-                    };
-                    active_chords[key] = hotkey;
-                    let mut cursor = POINT { x: 0, y: 0 };
-                    let has_cursor = unsafe { GetCursorPos(&mut cursor) } != 0;
-                    let cursor = has_cursor.then_some(Point {
-                        x: cursor.x,
-                        y: cursor.y,
-                    });
-                    if sender
-                        .send(HotkeyEvent::KeyDown { hotkey, cursor })
-                        .is_err()
-                    {
-                        return;
-                    }
-                } else {
-                    let hotkey = active_chords[key];
-                    if hotkey.is_configured() && sender.send(HotkeyEvent::KeyUp { hotkey }).is_err()
-                    {
-                        return;
-                    }
+            let current_keys = physical
+                .iter()
+                .enumerate()
+                .filter_map(|(key, is_down)| is_down.then_some(normalize_key(key as u16)))
+                .collect::<BTreeSet<_>>();
+
+            let mut working = previous_keys.clone();
+            for key in current_keys
+                .difference(&previous_keys)
+                .copied()
+                .collect::<Vec<_>>()
+            {
+                let before = working.iter().copied().collect::<Vec<_>>();
+                working.insert(key);
+                let cursor = cursor_position();
+                if sender
+                    .send(HotkeyEvent::KeyChanged {
+                        key_code: key,
+                        is_down: true,
+                        down_keys: working.iter().copied().collect(),
+                        previous_keys: before,
+                        cursor,
+                    })
+                    .is_err()
+                {
+                    return;
                 }
             }
-            previous = down;
+
+            for key in previous_keys
+                .difference(&current_keys)
+                .copied()
+                .collect::<Vec<_>>()
+            {
+                let before = working.iter().copied().collect::<Vec<_>>();
+                working.remove(&key);
+                if sender
+                    .send(HotkeyEvent::KeyChanged {
+                        key_code: key,
+                        is_down: false,
+                        down_keys: working.iter().copied().collect(),
+                        previous_keys: before,
+                        cursor: None,
+                    })
+                    .is_err()
+                {
+                    return;
+                }
+            }
+
+            previous_keys = current_keys;
             thread::sleep(Duration::from_millis(4));
         }
     }
 
-    fn is_modifier(key: u16) -> bool {
-        matches!(key, 0x10..=0x12 | 0x5b..=0x5c | 0xa0..=0xa5)
+    fn is_keyboard_key(key: u16) -> bool {
+        // VK_LBUTTON..VK_XBUTTON2 belong to the mouse and are not shortcuts.
+        !matches!(key, 0x01..=0x06 | 0x07)
+    }
+
+    fn cursor_position() -> Option<Point> {
+        let mut cursor = POINT { x: 0, y: 0 };
+        (unsafe { GetCursorPos(&mut cursor) } != 0).then_some(Point {
+            x: cursor.x,
+            y: cursor.y,
+        })
     }
 }

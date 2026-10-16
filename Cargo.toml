@@ -1,5 +1,5 @@
 [package]
-name = "rust-autoclicker"
+name = "neo-autoclicker"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.88"
@@ -7,7 +7,7 @@ description = "A configurable Windows autoclicker with profiles and position seq
 license = "MIT"
 
 [[bin]]
-name = "RustAutoClicker"
+name = "NeoAutoClicker"
 path = "src/main.rs"
 
 [dependencies]

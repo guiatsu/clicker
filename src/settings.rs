@@ -1,12 +1,6 @@
-use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-pub enum SpeedMode {
-    #[default]
-    Normal,
-    HighPrecision,
-    Unlimited,
-}
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum ActivationMode {
@@ -46,42 +40,156 @@ pub struct Modifiers {
     pub windows: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+/// A global shortcut represented as a normalized set of simultaneously held keys.
+#[derive(Debug, Clone, Default)]
 pub struct Hotkey {
-    pub key_code: u16,
-    pub modifiers: Modifiers,
+    keys: Vec<u16>,
 }
 
 impl Hotkey {
-    pub fn label(self) -> String {
-        if self.key_code == 0 {
-            return "Não configurado".to_owned();
-        }
-
-        let mut parts = Vec::new();
-        if self.modifiers.control {
-            parts.push("Ctrl".to_owned());
-        }
-        if self.modifiers.shift {
-            parts.push("Shift".to_owned());
-        }
-        if self.modifiers.alt {
-            parts.push("Alt".to_owned());
-        }
-        if self.modifiers.windows {
-            parts.push("Win".to_owned());
-        }
-        parts.push(key_label(self.key_code));
-        parts.join("+")
+    pub fn from_keys(keys: impl IntoIterator<Item = u16>) -> Self {
+        let mut keys = keys
+            .into_iter()
+            .map(normalize_key)
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>();
+        keys.sort_by_key(|key| key_order(*key));
+        Self { keys }
     }
 
-    pub fn is_configured(self) -> bool {
-        self.key_code != 0
+    pub fn matches_keys(&self, keys: &[u16]) -> bool {
+        self.is_configured() && self.keys == Self::from_keys(keys.iter().copied()).keys
+    }
+
+    pub fn conflicts_with(&self, other: &Self) -> bool {
+        if !self.is_configured() || !other.is_configured() {
+            return false;
+        }
+        is_subset(&self.keys, &other.keys) || is_subset(&other.keys, &self.keys)
+    }
+
+    pub fn label(&self) -> String {
+        if self.keys.is_empty() {
+            return "Não configurado".to_owned();
+        }
+        self.keys
+            .iter()
+            .map(|key| key_label(*key))
+            .collect::<Vec<_>>()
+            .join(" + ")
+    }
+
+    pub fn is_configured(&self) -> bool {
+        !self.keys.is_empty()
     }
 }
 
-pub fn key_label(code: u16) -> String {
+impl PartialEq for Hotkey {
+    fn eq(&self, other: &Self) -> bool {
+        self.keys == other.keys
+    }
+}
+
+impl Eq for Hotkey {}
+
+#[derive(Serialize, Deserialize, Default)]
+#[serde(default)]
+struct HotkeyWire {
+    keys: Vec<u16>,
+    // Kept so profiles written by the previous release still load.
+    key_code: u16,
+    modifiers: Modifiers,
+}
+
+impl Serialize for Hotkey {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let modifiers = Modifiers {
+            control: self.keys.contains(&0x11),
+            shift: self.keys.contains(&0x10),
+            alt: self.keys.contains(&0x12),
+            windows: self.keys.contains(&0x5b),
+        };
+        let key_code = self
+            .keys
+            .iter()
+            .rev()
+            .find(|key| !is_modifier(**key))
+            .copied()
+            .unwrap_or(0);
+        HotkeyWire {
+            keys: self.keys.clone(),
+            key_code,
+            modifiers,
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for Hotkey {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let wire = HotkeyWire::deserialize(deserializer)?;
+        if !wire.keys.is_empty() {
+            return Ok(Self::from_keys(wire.keys));
+        }
+        if wire.key_code == 0 {
+            return Ok(Self::default());
+        }
+        let mut keys = Vec::new();
+        if wire.modifiers.control {
+            keys.push(0x11);
+        }
+        if wire.modifiers.shift {
+            keys.push(0x10);
+        }
+        if wire.modifiers.alt {
+            keys.push(0x12);
+        }
+        if wire.modifiers.windows {
+            keys.push(0x5b);
+        }
+        keys.push(wire.key_code);
+        Ok(Self::from_keys(keys))
+    }
+}
+
+pub fn normalize_key(code: u16) -> u16 {
     match code {
+        0xa2 | 0xa3 => 0x11,
+        0xa0 | 0xa1 => 0x10,
+        0xa4 | 0xa5 => 0x12,
+        0x5c => 0x5b,
+        _ => code,
+    }
+}
+
+fn is_modifier(code: u16) -> bool {
+    matches!(normalize_key(code), 0x10..=0x12 | 0x5b)
+}
+
+fn key_order(code: u16) -> (u8, u16) {
+    let priority = match code {
+        0x11 => 0,
+        0x10 => 1,
+        0x12 => 2,
+        0x5b => 3,
+        _ => 4,
+    };
+    (priority, code)
+}
+
+pub fn key_label(code: u16) -> String {
+    match normalize_key(code) {
+        0x10 => "Shift".to_owned(),
+        0x11 => "Ctrl".to_owned(),
+        0x12 => "Alt".to_owned(),
+        0x5b => "Win".to_owned(),
         0x30..=0x39 | 0x41..=0x5a => char::from_u32(code as u32).unwrap().to_string(),
         0x70..=0x87 => format!("F{}", code - 0x6f),
         0x20 => "Espaço".to_owned(),
@@ -89,6 +197,10 @@ pub fn key_label(code: u16) -> String {
         0x09 => "Tab".to_owned(),
         0x2d => "Insert".to_owned(),
         0x2e => "Delete".to_owned(),
+        0x25 => "←".to_owned(),
+        0x26 => "↑".to_owned(),
+        0x27 => "→".to_owned(),
+        0x28 => "↓".to_owned(),
         _ => format!("VK {code:02X}"),
     }
 }
@@ -99,12 +211,9 @@ pub struct Point {
     pub y: i32,
 }
 
-impl Point {}
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
-    pub speed_mode: SpeedMode,
     pub activation_mode: ActivationMode,
     pub destination_mode: DestinationMode,
     pub mouse_button: MouseButton,
@@ -121,12 +230,14 @@ pub struct Settings {
     pub repeat_continuously: bool,
     pub start_hotkey: Hotkey,
     pub add_position_hotkey: Hotkey,
+    pub toggle_overlay_hotkey: Hotkey,
+    pub add_coordinate_hotkey: Hotkey,
+    pub clear_positions_hotkey: Hotkey,
 }
 
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            speed_mode: SpeedMode::Normal,
             activation_mode: ActivationMode::Toggle,
             destination_mode: DestinationMode::CurrentCursor,
             mouse_button: MouseButton::Left,
@@ -141,14 +252,11 @@ impl Default for Settings {
             interval_between_positions_ms: 100.0,
             cycles: 1,
             repeat_continuously: true,
-            start_hotkey: Hotkey {
-                key_code: 0x75,
-                modifiers: Modifiers::default(),
-            },
-            add_position_hotkey: Hotkey {
-                key_code: 0x76,
-                modifiers: Modifiers::default(),
-            },
+            start_hotkey: Hotkey::from_keys([0x75]),
+            add_position_hotkey: Hotkey::from_keys([0x76]),
+            toggle_overlay_hotkey: Hotkey::from_keys([0x77]),
+            add_coordinate_hotkey: Hotkey::from_keys([0x11, 0x78]),
+            clear_positions_hotkey: Hotkey::from_keys([0x12, 0x10, 0x78]),
         }
     }
 }
@@ -202,31 +310,47 @@ impl Settings {
         if self.destination_mode == DestinationMode::PositionSequence && self.positions.is_empty() {
             return Err("Adicione ao menos uma posição para usar a sequência.".to_owned());
         }
-        if self.start_hotkey.is_configured()
-            && self.add_position_hotkey.is_configured()
-            && self.start_hotkey == self.add_position_hotkey
-        {
-            return Err("O atalho de execução e o de captura precisam ser diferentes.".to_owned());
+
+        let shortcuts = [
+            ("iniciar/parar", &self.start_hotkey),
+            ("capturar posição", &self.add_position_hotkey),
+            ("mostrar posições", &self.toggle_overlay_hotkey),
+            ("adicionar coordenada", &self.add_coordinate_hotkey),
+            ("limpar posições", &self.clear_positions_hotkey),
+        ];
+        for (index, (name, shortcut)) in shortcuts.iter().enumerate() {
+            if !shortcut.is_configured() {
+                continue;
+            }
+            if shortcuts[index + 1..]
+                .iter()
+                .any(|(_, other)| shortcut.conflicts_with(other))
+            {
+                return Err(format!(
+                    "O atalho de {name} está associado a mais de uma ação."
+                ));
+            }
         }
         Ok(())
     }
 
     pub fn scheduler_warning(&self) -> Option<&'static str> {
-        if self.speed_mode != SpeedMode::Unlimited && self.press_duration_ms > self.interval_ms {
-            return Some(
+        if self.press_duration_ms > self.interval_ms {
+            Some(
                 "A duração do pressionamento supera o intervalo; o CPS efetivo ficará abaixo do configurado.",
-            );
-        }
-        match self.speed_mode {
-            SpeedMode::Normal if self.interval_ms < 15.0 => Some(
-                "Abaixo de 15 ms o scheduler normal pode alongar os intervalos; a taxa solicitada não é garantida.",
-            ),
-            SpeedMode::HighPrecision if self.interval_ms < 15.0 => Some(
-                "A espera ativa melhora o trecho final do intervalo, mas o scheduler e o destino ainda limitam a precisão.",
-            ),
-            _ => None,
+            )
+        } else if self.interval_ms < 15.0 {
+            Some(
+                "Abaixo de 15 ms, a agenda do Windows pode alongar os intervalos; a taxa solicitada não é garantida.",
+            )
+        } else {
+            None
         }
     }
+}
+
+fn is_subset(left: &[u16], right: &[u16]) -> bool {
+    left.iter().all(|key| right.contains(key))
 }
 
 #[cfg(test)]
@@ -243,24 +367,54 @@ mod tests {
     }
 
     #[test]
+    fn supports_arbitrary_chords_and_normalizes_modifier_sides() {
+        let hotkey = Hotkey::from_keys([0xa2, 0x10, 0x75]);
+        assert_eq!(hotkey.label(), "Ctrl + Shift + F6");
+        assert!(hotkey.matches_keys(&[0x11, 0x10, 0x75]));
+    }
+
+    #[test]
+    fn reads_legacy_shortcuts_and_round_trips_new_chords() {
+        let old: Hotkey = serde_json::from_str(
+            r#"{"key_code":117,"modifiers":{"control":true,"shift":false,"alt":false,"windows":false}}"#,
+        )
+        .unwrap();
+        assert_eq!(old.label(), "Ctrl + F6");
+
+        let new = Hotkey::from_keys([0x41, 0x42, 0x43]);
+        let restored: Hotkey = serde_json::from_str(&serde_json::to_string(&new).unwrap()).unwrap();
+        assert_eq!(restored.label(), "A + B + C");
+    }
+
+    #[test]
     fn rejects_conflicting_shortcuts_and_empty_sequence() {
         let mut settings = Settings::default();
-        settings.add_position_hotkey = settings.start_hotkey;
+        settings.add_position_hotkey = settings.start_hotkey.clone();
         assert!(settings.validate().is_err());
-        settings.add_position_hotkey.key_code = 0x77;
+        settings.add_position_hotkey = Hotkey::from_keys([0x79]);
         settings.destination_mode = DestinationMode::PositionSequence;
         assert!(settings.validate().is_err());
     }
 
     #[test]
-    fn recognizes_when_scheduler_cannot_guarantee_requested_rate() {
+    fn rejects_ambiguous_subset_chords() {
+        let settings = Settings {
+            add_position_hotkey: Hotkey::from_keys([0x11, 0x75]),
+            ..Settings::default()
+        };
+        assert!(settings.validate().is_err());
+    }
+
+    #[test]
+    fn recognizes_when_scheduler_cannot_keep_up() {
         let mut settings = Settings {
             interval_ms: 0.5,
             press_duration_ms: 0.0,
             ..Settings::default()
         };
         assert!(settings.scheduler_warning().is_some());
-        settings.speed_mode = SpeedMode::HighPrecision;
+        settings.interval_ms = 50.0;
+        settings.press_duration_ms = 100.0;
         assert!(settings.scheduler_warning().is_some());
     }
 }

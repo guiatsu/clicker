@@ -11,7 +11,7 @@ use std::{
 
 use crate::{
     input::{self, ClickInput},
-    settings::{ClickKind, DestinationMode, Settings, SpeedMode},
+    settings::{ClickKind, DestinationMode, Settings},
 };
 
 #[derive(Debug, Clone, Default)]
@@ -108,11 +108,7 @@ fn execute(
     let max_clicks = settings
         .max_clicks
         .or_else(|| (!sequence && !settings.repeat_continuously).then_some(1));
-    let interval = if settings.speed_mode == SpeedMode::Unlimited {
-        Duration::ZERO
-    } else {
-        Duration::from_secs_f64(settings.interval_ms / 1000.0)
-    };
+    let interval = Duration::from_secs_f64(settings.interval_ms / 1000.0);
     let press_duration = Duration::from_secs_f64(settings.press_duration_ms / 1000.0);
     let position_interval =
         Duration::from_secs_f64(settings.interval_between_positions_ms / 1000.0);
@@ -157,7 +153,7 @@ fn execute(
                         return Err(error);
                     }
                     stats.successful_operations += 1;
-                    wait_duration(press_duration, settings.speed_mode, stop);
+                    wait_duration(press_duration, stop);
                     if let Err(error) = input.send_button(settings.mouse_button, false) {
                         stats.failed_events += 1;
                         if input.send_button(settings.mouse_button, false).is_err() {
@@ -173,9 +169,9 @@ fn execute(
                     report_if_due(stats, events, started, last_report);
 
                     if click_index + 1 < click_multiplier {
-                        wait_duration(double_gap, settings.speed_mode, stop);
+                        wait_duration(double_gap, stop);
                     } else if interval > Duration::ZERO {
-                        wait_until(click_started + interval, settings.speed_mode, stop);
+                        wait_until(click_started + interval, stop, interval);
                     }
                 }
                 if should_stop(stop, stats, max_clicks) {
@@ -186,7 +182,7 @@ fn execute(
                 break;
             }
             if sequence && position_index + 1 < position_count {
-                wait_duration(position_interval, settings.speed_mode, stop);
+                wait_duration(position_interval, stop);
             }
         }
 
@@ -219,27 +215,32 @@ fn report_if_due(
     }
 }
 
-fn wait_duration(duration: Duration, mode: SpeedMode, stop: &AtomicBool) {
+fn wait_duration(duration: Duration, stop: &AtomicBool) {
     if duration.is_zero() {
         return;
     }
-    wait_until(Instant::now() + duration, mode, stop);
+    wait_until(Instant::now() + duration, stop, duration);
 }
 
-fn wait_until(deadline: Instant, mode: SpeedMode, stop: &AtomicBool) {
+fn wait_until(deadline: Instant, stop: &AtomicBool, budget: Duration) {
+    const SPIN_TAIL: Duration = Duration::from_micros(250);
+    let spin_tail = if budget >= Duration::from_millis(2) {
+        SPIN_TAIL
+    } else {
+        Duration::ZERO
+    };
+
     while !stop.load(Ordering::Acquire) {
         let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
             return;
         }
-        if mode == SpeedMode::HighPrecision && remaining <= Duration::from_micros(250) {
+        if !spin_tail.is_zero() && remaining <= spin_tail {
             std::hint::spin_loop();
         } else {
-            let sleep = if mode == SpeedMode::HighPrecision {
-                remaining.saturating_sub(Duration::from_micros(250))
-            } else {
-                remaining.min(Duration::from_millis(10))
-            };
+            let sleep = remaining
+                .saturating_sub(spin_tail)
+                .min(Duration::from_millis(10));
             if !sleep.is_zero() {
                 thread::sleep(sleep);
             }

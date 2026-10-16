@@ -21,6 +21,17 @@ pub fn create_backend() -> io::Result<Box<dyn ClickInput>> {
     }
 }
 
+pub fn cursor_position() -> Option<Point> {
+    #[cfg(windows)]
+    {
+        windows::cursor_position()
+    }
+    #[cfg(not(windows))]
+    {
+        None
+    }
+}
+
 #[cfg(windows)]
 mod windows {
     use std::{io, mem::size_of};
@@ -32,7 +43,7 @@ mod windows {
                 MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP, MOUSEEVENTF_RIGHTDOWN,
                 MOUSEEVENTF_RIGHTUP, MOUSEINPUT, SendInput,
             },
-            WindowsAndMessaging::SetCursorPos,
+            WindowsAndMessaging::{GetCursorPos, SetCursorPos},
         },
         core::BOOL,
     };
@@ -42,6 +53,14 @@ mod windows {
     use super::ClickInput;
 
     pub struct WindowsInput;
+
+    pub fn cursor_position() -> Option<Point> {
+        let mut cursor = windows_sys::Win32::Foundation::POINT { x: 0, y: 0 };
+        (unsafe { GetCursorPos(&mut cursor) } != 0).then_some(Point {
+            x: cursor.x,
+            y: cursor.y,
+        })
+    }
 
     impl ClickInput for WindowsInput {
         fn move_cursor(&mut self, point: Point) -> io::Result<()> {

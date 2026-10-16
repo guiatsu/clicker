@@ -15,14 +15,14 @@ fn main() -> eframe::Result<()> {
 
     let options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()
-            .with_inner_size([1120.0, 820.0])
-            .with_min_inner_size([820.0, 640.0])
-            .with_title("Rust AutoClicker"),
+            .with_inner_size([1280.0, 900.0])
+            .with_min_inner_size([980.0, 720.0])
+            .with_title("Neo AutoClicker"),
         ..Default::default()
     };
 
     eframe::run_native(
-        "Rust AutoClicker",
+        "Neo AutoClicker",
         options,
         Box::new(|cc| Ok(Box::new(app::AutoClickerApp::new(cc)))),
     )

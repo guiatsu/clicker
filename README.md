@@ -1,37 +1,38 @@
-# Rust AutoClicker
+# Neo AutoClicker
 
-Aplicativo desktop nativo em Rust com interface egui, perfis, atalhos globais, captura de coordenadas e sequências de posições. A aplicação não começa a clicar ao abrir.
+Aplicativo desktop nativo em Rust para Windows, com perfis, atalhos globais, captura de coordenadas e sequências de posições. Abre em estado parado e não começa a clicar automaticamente.
 
-## Estado do projeto
+## Controles
 
-O código contém a UI, persistência JSON, modelos/validações e motor cancelável com backend `SendInput` para Windows. O overlay usa uma janela Win32 topmost, transparente e sem interação com o mouse, cobrindo o espaço virtual dos monitores.
+| Ação | Atalho inicial |
+|---|---|
+| Iniciar / parar | `F6` |
+| Capturar ponto sob o cursor | `F7` |
+| Mostrar / ocultar marcadores | `F8` |
+| Adicionar coordenada | `Ctrl + F9` |
+| Limpar pontos (com confirmação) | `Alt + Shift + F9` |
 
-Este checkout está sendo trabalhado em WSL2, sem acesso funcional ao shell Windows. O workflow `Windows build` compila para `x86_64-pc-windows-msvc`, executa os checks nativos e publica `RustAutoClicker-windows-x64` como artefato do GitHub Actions. Baixe-o em **Actions → Windows build → Artifacts** após uma execução bem-sucedida. Os testes manuais de hotkeys, overlay, DPI e monitores ainda exigem um desktop Windows.
+Clique no próprio atalho da interface para gravar outra combinação. A tela mostra cada tecla pressionada; o atalho só é salvo depois que todas forem soltas. Combinações podem conter modificadores ou várias teclas, por exemplo `Ctrl + Shift + F6` e `A + B + C`.
 
-## Uso
+O painel oferece cursor atual, posição fixa e sequência ordenada. CPS e intervalo permanecem sincronizados; também é possível escolher botão e tipo de clique, duração, repetição, ciclos e limite total. A lista de posições aceita captura pelo cursor, coordenadas manuais, reordenação e remoção. O overlay mostra os pontos sobre o desktop sem receber cliques.
 
-- `F6`: iniciar/parar por alternância.
-- `F7`: capturar a posição atual do cursor.
-- Os atalhos podem ser alterados na interface e aceitam Ctrl, Shift, Alt e Win.
-- Escolha entre cursor atual, posição fixa e sequência ordenada.
-- O botão de parada de emergência e o atalho de execução interrompem o motor.
+## Perfis e dados
 
-Se o aplicativo não puder criar ou gravar os arquivos de configuração, ele permanece aberto com o perfil padrão e mostra um aviso. Perfis ficam em `%APPDATA%/RustAutoClicker/profiles.json` no Windows; no Linux, em `$XDG_CONFIG_HOME/RustAutoClicker/profiles.json` ou `~/.config/RustAutoClicker/profiles.json`.
+Os perfis ficam em `%APPDATA%/NeoAutoClicker/profiles.json` no Windows; no Linux, em `$XDG_CONFIG_HOME/NeoAutoClicker/profiles.json` ou `~/.config/NeoAutoClicker/profiles.json`.
 
-## Compilação
+Se a pasta nova ainda não existir, o Neo AutoClicker tenta carregar os dados legados de `RustAutoClicker/profiles.json`. Ao salvar uma alteração, os dados passam para o caminho Neo.
 
-Para desenvolvimento no Windows, instale Rust estável, o target MSVC e os componentes C++/Windows SDK conforme a documentação oficial do Rust para Windows. Em seguida:
+## Desenvolvimento e build
+
+Com Rust estável e toolchain MSVC/Windows SDK instalados:
 
 ```powershell
 cargo fmt --all -- --check
-cargo clippy --all-targets -- -D warnings
-cargo test
+cargo clippy --all-targets --target x86_64-pc-windows-msvc -- -D warnings
+cargo test --target x86_64-pc-windows-msvc
 cargo build --release --target x86_64-pc-windows-msvc
 ```
 
-O executável fica em `target/x86_64-pc-windows-msvc/release/RustAutoClicker.exe`. O toolchain Rust estático não exige Rust no computador de destino; instalações Windows podem exigir o runtime Microsoft Visual C++ dependendo do equipamento. Verifique em um Windows limpo antes de distribuir.
+O executável é `target/x86_64-pc-windows-msvc/release/NeoAutoClicker.exe`. O workflow **Windows build** também publica o artefato `NeoAutoClicker-windows-x64`.
 
-O modo Normal usa esperas do scheduler do sistema. Alta precisão faz espera ativa apenas no trecho final de até 250 µs, com maior uso de CPU. Sem limite remove a pausa configurada, mas não remove o tempo de pressionamento, a latência do sistema ou o tempo de processamento do aplicativo receptor. CPS exibido mede eventos concluídos pelo motor e não comprova que outro aplicativo os recebeu.
-
-`SendInput` respeita os limites de integridade do Windows; aplicativos elevados podem rejeitar eventos enviados por um processo comum. O programa não tenta contornar esses limites, anticheat ou outras proteções.
-
+O scheduler usa o intervalo configurado com espera interrompível e um trecho final de espera precisa. Intervalos muito curtos e durações de pressionamento maiores que o intervalo podem reduzir o CPS efetivo; os valores exibidos contam eventos aceitos por `SendInput`, não o que outro aplicativo processou. O programa respeita os limites de integridade do Windows e não tenta contornar anticheat ou outras proteções.
