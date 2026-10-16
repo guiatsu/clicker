@@ -94,8 +94,8 @@ mod windows {
 
         while !stop.load(Ordering::Acquire) {
             let mut down = [false; 256];
-            for key in 1..256 {
-                down[key] = unsafe { GetAsyncKeyState(key as i32) } < 0;
+            for (key, state) in down.iter_mut().enumerate().skip(1) {
+                *state = unsafe { GetAsyncKeyState(key as i32) } < 0;
             }
             let modifiers = Modifiers {
                 control: down[0x11] || down[0xa2] || down[0xa3],
@@ -104,11 +104,11 @@ mod windows {
                 windows: down[0x5b] || down[0x5c],
             };
 
-            for key in 1..256 {
-                if down[key] == previous[key] || is_modifier(key as u16) {
+            for (key, (&is_down, &was_down)) in down.iter().zip(&previous).enumerate().skip(1) {
+                if is_down == was_down || is_modifier(key as u16) {
                     continue;
                 }
-                if down[key] {
+                if is_down {
                     let hotkey = Hotkey {
                         key_code: key as u16,
                         modifiers,

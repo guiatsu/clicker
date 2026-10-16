@@ -134,28 +134,26 @@ mod windows {
         ffi::c_void,
         mem::zeroed,
         ptr::{null, null_mut},
-        sync::mpsc::{Receiver, SyncSender, TryRecvError},
-        thread,
+        sync::mpsc::{Receiver, RecvTimeoutError, SyncSender},
         time::Duration,
     };
 
     use windows_sys::Win32::{
-        Foundation::{HWND, LPARAM, LRESULT, WPARAM},
+        Foundation::{COLORREF, HWND, LPARAM, LRESULT, WPARAM},
         Graphics::Gdi::{
-            BLACK_BRUSH, BeginPaint, COLORREF, CreatePen, DeleteObject, Ellipse, EndPaint,
-            GetStockObject, HBRUSH, HDC, HGDIOBJ, LineTo, MoveToEx, NULL_BRUSH, PAINTSTRUCT,
+            BLACK_BRUSH, BeginPaint, CreatePen, DeleteObject, Ellipse, EndPaint, GetStockObject,
+            HBRUSH, HDC, HGDIOBJ, InvalidateRect, LineTo, MoveToEx, NULL_BRUSH, PAINTSTRUCT,
             PS_SOLID, SelectObject, SetBkMode, SetTextColor, TRANSPARENT, TextOutW,
         },
         System::LibraryLoader::GetModuleHandleW,
         UI::WindowsAndMessaging::{
             CS_HREDRAW, CS_VREDRAW, CreateWindowExW, DefWindowProcW, DestroyWindow,
-            DispatchMessageW, GetSystemMetrics, HWND_TOPMOST, InvalidateRect, LWA_COLORKEY, MSG,
-            PM_REMOVE, PeekMessageW, PostQuitMessage, RegisterClassW, SM_CXVIRTUALSCREEN,
-            SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SW_HIDE, SW_SHOWNOACTIVATE,
-            SWP_NOACTIVATE, SWP_SHOWWINDOW, SetLayeredWindowAttributes, SetWindowPos, ShowWindow,
-            TranslateMessage, WM_DESTROY, WM_NCCREATE, WM_NCHITTEST, WM_PAINT, WNDCLASSW,
-            WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT,
-            WS_POPUP,
+            DispatchMessageW, GetSystemMetrics, HWND_TOPMOST, LWA_COLORKEY, MSG, PM_REMOVE,
+            PeekMessageW, PostQuitMessage, RegisterClassW, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN,
+            SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SW_HIDE, SW_SHOWNOACTIVATE, SWP_NOACTIVATE,
+            SWP_SHOWWINDOW, SetLayeredWindowAttributes, SetWindowPos, ShowWindow, TranslateMessage,
+            WM_DESTROY, WM_NCCREATE, WM_NCHITTEST, WM_PAINT, WNDCLASSW, WS_EX_LAYERED,
+            WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
         },
     };
 
@@ -195,7 +193,7 @@ mod windows {
             hInstance: instance,
             hIcon: null_mut(),
             hCursor: null_mut(),
-            hbrBackground: unsafe { GetStockObject(BLACK_BRUSH as i32) as HBRUSH },
+            hbrBackground: unsafe { GetStockObject(BLACK_BRUSH) as HBRUSH },
             lpszMenuName: null(),
             lpszClassName: CLASS_NAME.as_ptr(),
         };
@@ -290,8 +288,8 @@ mod windows {
                         unsafe { InvalidateRect(window, null(), 1) };
                     }
                 }
-                Ok(OverlayCommand::Close) | Err(TryRecvError::Disconnected) => break,
-                Err(TryRecvError::Empty) => {}
+                Ok(OverlayCommand::Close) | Err(RecvTimeoutError::Disconnected) => break,
+                Err(RecvTimeoutError::Timeout) => {}
             }
         }
         unsafe { DestroyWindow(window) };
@@ -343,7 +341,7 @@ mod windows {
     unsafe fn draw_points(dc: HDC, state: &OverlayState) {
         let pen = unsafe { CreatePen(PS_SOLID, 3, rgb(255, 190, 55)) };
         let old_pen: HGDIOBJ = unsafe { SelectObject(dc, pen) };
-        let null_brush = unsafe { GetStockObject(NULL_BRUSH as i32) };
+        let null_brush = unsafe { GetStockObject(NULL_BRUSH) };
         let old_brush = unsafe { SelectObject(dc, null_brush) };
         unsafe {
             SetBkMode(dc, TRANSPARENT as i32);

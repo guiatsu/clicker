@@ -25,9 +25,8 @@ pub fn create_backend() -> io::Result<Box<dyn ClickInput>> {
 mod windows {
     use std::{io, mem::size_of};
 
-    use windows_sys::Win32::{
-        Foundation::BOOL,
-        UI::{
+    use windows_sys::{
+        Win32::UI::{
             Input::KeyboardAndMouse::{
                 INPUT, INPUT_0, INPUT_MOUSE, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP,
                 MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP, MOUSEEVENTF_RIGHTDOWN,
@@ -35,6 +34,7 @@ mod windows {
             },
             WindowsAndMessaging::SetCursorPos,
         },
+        core::BOOL,
     };
 
     use crate::settings::{MouseButton, Point};
