@@ -6,7 +6,7 @@ Aplicativo desktop nativo em Rust com interface egui, perfis, atalhos globais, c
 
 O código contém a UI, persistência JSON, modelos/validações e motor cancelável com backend `SendInput` para Windows. O overlay usa uma janela Win32 topmost, transparente e sem interação com o mouse, cobrindo o espaço virtual dos monitores.
 
-Este checkout está sendo trabalhado em WSL2. O ambiente atual não possui o target `x86_64-pc-windows-msvc`, Visual Studio C++ Build Tools ou Windows SDK acessíveis, e a interoperabilidade WSL/Windows falhou. Portanto o `.exe` e os testes manuais de hotkeys, overlay, DPI e monitores ainda dependem de um host Windows com os componentes oficiais instalados. Não instalei componentes do sistema.
+Este checkout está sendo trabalhado em WSL2. O target `x86_64-pc-windows-msvc` e o Rust nativo de Windows não estão instalados. O `cl.exe` existe na unidade Windows, mas não pode ser iniciado pelo WSL nesta sessão; também não encontrei `rc.exe` nem os cabeçalhos do Windows SDK. O PowerShell falha com erro de interoperabilidade do WSL. Portanto o `.exe` e os testes manuais de hotkeys, overlay, DPI e monitores ainda dependem de acesso funcional ao host Windows e autorização para instalar os componentes ausentes. Nenhum componente do sistema foi instalado.
 
 ## Uso
 
