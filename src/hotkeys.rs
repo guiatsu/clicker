@@ -157,7 +157,7 @@ mod windows {
 
     fn is_keyboard_key(key: u16) -> bool {
         // VK_LBUTTON..VK_XBUTTON2 belong to the mouse and are not shortcuts.
-        !matches!(key, 0x01..=0x06 | 0x07)
+        !matches!(key, 0x01..=0x07)
     }
 
     fn cursor_position() -> Option<Point> {
