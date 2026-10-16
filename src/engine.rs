@@ -185,7 +185,10 @@ fn execute(
         }
 
         cycles_done += 1;
-        if !settings.repeat_continuously && cycles_done >= settings.cycles {
+        if !settings.repeat_continuously
+            && settings.max_clicks.is_none()
+            && cycles_done >= settings.cycles
+        {
             break;
         }
     }
